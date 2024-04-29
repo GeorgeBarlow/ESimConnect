@@ -15,6 +15,7 @@ using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Interop;
+using ESimConnect.Aircrafts;
 
 namespace ESimConnect
 {
@@ -239,6 +240,23 @@ namespace ESimConnect
         this.parent.requestDataManager.Register(customRequestId, typeof(T), eRequestId);
         logger.LogMethodEnd();
       }
+      public void StopReceivingData(int requestId, int typeId)
+      {
+        logger.LogMethodStart();
+        parent.EnsureConnected();
+
+        EEnum eRequestId = (EEnum)requestId;
+        EEnum etypeId = (EEnum)typeId;
+
+        // Prevent data being received in order to clear the definition
+        parent.Try(() =>
+        parent.simConnect!.RequestDataOnSimObject(
+            eRequestId, etypeId, SimConnect.SIMCONNECT_OBJECT_ID_USER, SIMCONNECT_PERIOD.NEVER,
+            SIMCONNECT_DATA_REQUEST_FLAG.DEFAULT, 0, 0, 0),
+            ex => new InternalException($"Failed to invoke 'RequestDataOnSimObject(...)'.", ex));
+
+        logger.LogMethodEnd();
+      }
 
 
       public void Unregister<T>()
@@ -364,9 +382,45 @@ namespace ESimConnect
     public class ClientEventsHandler : BaseHandler
     {
       private readonly EEnum GROUP_ID_PRIORITY_STANDARD = (EEnum)1900000000;
+      private readonly EEnum GROUP_ID_PRIORITY_HIGHEST = (EEnum)1;
 
-      public ClientEventsHandler(ESimConnect parent) : base(parent)
+            public ClientEventsHandler(ESimConnect parent) : base(parent)
       {
+      }
+
+      public void Invoke(int eventId, uint[]? parameters = null)
+      {
+        logger.LogMethodStart();
+        parent.EnsureConnected();
+
+        parameters ??= Array.Empty<uint>();
+
+        // up to 5 parameters available, but probably with a different .ddl version
+        if (parameters.Length > 1) throw new NotImplementedException($"Maximum expected number of parameters is {1} (provided {parameters.Length}).");
+
+        EEnum eEvent = IdProvider.GetNextAsEnum();
+        uint val = parameters.Length == 0 ? 0 : parameters[0];
+
+        EEnum eEventId = (EEnum)eventId;
+        this.parent.Try(() =>
+                parent.simConnect!.TransmitClientEvent(
+                            SimConnect.SIMCONNECT_OBJECT_ID_USER, eEventId, val, GROUP_ID_PRIORITY_HIGHEST, SIMCONNECT_EVENT_FLAG.GROUPID_IS_PRIORITY),
+                                    ex => new InternalException($"Failed to invoke 'TransmitClientEvent(...)'.", ex));
+        logger.LogMethodEnd();
+      }
+
+      public int MapClientEventToSimEvent(string eventName)
+      {
+        logger.LogMethodStart();
+        parent.EnsureConnected();
+
+        EEnum eEvent = IdProvider.GetNextAsEnum();
+        this.parent.Try(() =>
+                parent.simConnect!.MapClientEventToSimEvent(eEvent, eventName),
+                        ex => new InternalException($"Failed to invoke 'MapClientEventToSimEvent(...)'.", ex));
+        logger.LogMethodEnd();
+        return (int)eEvent;
+
       }
 
       public void Invoke(string eventName, uint[]? parameters = null, bool validate = false)
@@ -388,7 +442,7 @@ namespace ESimConnect
         uint val = parameters.Length == 0 ? 0 : parameters[0];
         this.parent.Try(() =>
           this.parent.simConnect.TransmitClientEvent(
-          SimConnect.SIMCONNECT_OBJECT_ID_USER, eEvent, val, GROUP_ID_PRIORITY_STANDARD, SIMCONNECT_EVENT_FLAG.GROUPID_IS_PRIORITY),
+          SimConnect.SIMCONNECT_OBJECT_ID_USER, eEvent, val, GROUP_ID_PRIORITY_HIGHEST, SIMCONNECT_EVENT_FLAG.GROUPID_IS_PRIORITY),
           ex => new InternalException($"Failed to invoke 'TransmitClientEvent(...)'", ex));
       }
 
@@ -689,7 +743,17 @@ namespace ESimConnect
       this.Disconnected?.Invoke(this);
     }
 
-    private void SimConnect_OnRecvEvent(SimConnect _, SIMCONNECT_RECV_EVENT data)
+    public void EnablePmdg737Sdk()
+    {
+        PMDG.RegisterPMDGNG3DataEvents(simConnect!);
+    }
+
+    public void SendPmdg737Control(PMDG_NG3_SDK.PMDG_NG3_Control control)
+    {
+        simConnect!.SetClientData(PMDG_NG3_SDK.PMDG_NG3.CONTROL_ID, PMDG_NG3_SDK.PMDG_NG3.CONTROL_DEFINITION, SIMCONNECT_CLIENT_DATA_SET_FLAG.DEFAULT, (uint)Marshal.SizeOf(typeof(PMDG_NG3_SDK.PMDG_NG3_Control)), control);
+    }
+
+        private void SimConnect_OnRecvEvent(SimConnect _, SIMCONNECT_RECV_EVENT data)
     {
       logger.LogObject("Event " + nameof(SimConnect_OnRecvEvent), data);
 
