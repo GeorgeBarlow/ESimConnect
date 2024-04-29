@@ -240,24 +240,6 @@ namespace ESimConnect
         this.parent.requestDataManager.Register(customRequestId, typeof(T), eRequestId);
         logger.LogMethodEnd();
       }
-      public void StopReceivingData(int requestId, int typeId)
-      {
-        logger.LogMethodStart();
-        parent.EnsureConnected();
-
-        EEnum eRequestId = (EEnum)requestId;
-        EEnum etypeId = (EEnum)typeId;
-
-        // Prevent data being received in order to clear the definition
-        parent.Try(() =>
-        parent.simConnect!.RequestDataOnSimObject(
-            eRequestId, etypeId, SimConnect.SIMCONNECT_OBJECT_ID_USER, SIMCONNECT_PERIOD.NEVER,
-            SIMCONNECT_DATA_REQUEST_FLAG.DEFAULT, 0, 0, 0),
-            ex => new InternalException($"Failed to invoke 'RequestDataOnSimObject(...)'.", ex));
-
-        logger.LogMethodEnd();
-      }
-
 
       public void Unregister<T>()
       {
@@ -567,7 +549,7 @@ namespace ESimConnect
         this.EnsurePrimitiveTypeIdExists(typeId);
         EEnum eTypeId = (EEnum)typeId;
         Type type = this.primitiveManager.GetType(typeId);
-        EEnum eRequestId = IdProvider.GetNextAsEnum();
+        EEnum eRequestId = (EEnum)customRequestId;
 
         SIMCONNECT_PERIOD simPeriod = EnumConverter.ConvertEnum2<SimConnectPeriod, SIMCONNECT_PERIOD>(period);
 
@@ -594,6 +576,26 @@ namespace ESimConnect
 
         EEnum eTypeId = (EEnum)typeId;
         parent.simConnect!.SetDataOnSimObject(eTypeId, SimConnect.SIMCONNECT_OBJECT_ID_USER, SIMCONNECT_DATA_SET_FLAG.DEFAULT, value);
+
+        logger.LogMethodEnd();
+      }
+
+      public void StopReceivingData(int requestId, int typeId)
+      {
+        logger.LogMethodStart();
+        parent.EnsureConnected();
+
+        EEnum eRequestId = (EEnum)requestId;
+        EEnum etypeId = (EEnum)typeId;
+
+        // Prevent data being received in order to clear the definition
+        parent.Try(() =>
+        parent.simConnect!.RequestDataOnSimObject(
+            eRequestId, etypeId, SimConnect.SIMCONNECT_OBJECT_ID_USER, SIMCONNECT_PERIOD.NEVER,
+            SIMCONNECT_DATA_REQUEST_FLAG.DEFAULT, 0, 0, 0),
+            ex => new InternalException($"Failed to invoke 'RequestDataOnSimObject(...)'.", ex));
+
+        System.Diagnostics.Debug.WriteLine($"StopReceivingData: {requestId} {typeId}");
 
         logger.LogMethodEnd();
       }
@@ -678,11 +680,11 @@ namespace ESimConnect
       logger.LogMethodStart();
       if (this.simConnect != null)
       {
-        this.Structs.UnregisterAll();
-        this.Values.UnregisterAll();
-        this.SystemEvents.UnregisterAll();
+                //this.Structs.UnregisterAll();
+                this.Values.UnregisterAll();
+                //this.SystemEvents.UnregisterAll();
 
-        this.winHandleManager.Dispose();
+                this.winHandleManager.Dispose();
 
         this.simConnect.Dispose();
         this.simConnect = null;
@@ -709,7 +711,7 @@ namespace ESimConnect
 
       Try(() =>
       {
-        this.simConnect = new SimConnect("ESimConnect", winHandleManager.Handle, WinHandleManager.WM_USER_SIMCONNECT, null, 0);
+        this.simConnect = new SimConnect("CockpitConnect", winHandleManager.Handle, WinHandleManager.WM_USER_SIMCONNECT, null, 0);
         this.simConnect.OnRecvOpen += SimConnect_OnRecvOpen;
         this.simConnect.OnRecvQuit += SimConnect_OnRecvQuit;
         this.simConnect.OnRecvException += SimConnect_OnRecvException;
